@@ -1,0 +1,14 @@
+{% extends "base.html.twig" %}
+{% block title %}Listado{% endblock %}
+{% block body %}
+		<h1>Listado de canciones</h1>
+		<ol>
+			{% for cancion in canciones %}
+				
+					<li>
+						<strong>{{cancion.autor}}: -{{cancion.nombre}}-</strong>
+					</li>
+	
+			{% endfor %}
+			</ol>
+{% endblock %}

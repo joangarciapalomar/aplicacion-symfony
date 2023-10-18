@@ -1,0 +1,10 @@
+{% extends "base.html.twig" %}
+{% block title %}Cancion{% endblock %}
+{% block body %}
+    <h1>CANCIÓN </h1>
+     <ul>
+        <li><strong>Nombre de la canción:</strong> {{cancion.nombre}}.</li>
+        <li><strong>Autor:</strong> {{cancion.autor}}.</li>
+        <li><strong>Duración:</strong> {{cancion.duracion}} minutos.</li>
+     </ul>
+{% endblock %}

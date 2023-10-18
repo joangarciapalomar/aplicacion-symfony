@@ -1,0 +1,20 @@
+{% extends "base.html.twig" %}
+{% block title %}Canciones{% endblock %}
+{% block body %}
+
+		<h1>Resultados</h1>
+
+		{% if canciones %}
+			{% for cancion in canciones %}
+				<ul>
+					<li>
+						<strong>{{cancion.autor}}: -{{cancion.nombre}}-</strong>
+					</li>
+				</ul>
+			{% endfor %}
+		{% else %}
+			<p>No se han encontrado canciones</p>
+		{% endif %}
+
+
+{% endblock %}
