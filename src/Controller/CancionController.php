@@ -4,14 +4,66 @@ namespace App\Controller;
 
 use App\Entity\Autor;
 use App\Entity\Canciones;
+use App\Form\CancionType;
 use Doctrine\Persistence\ManagerRegistry;
+use Symfony\Bridge\Doctrine\Form\Type\EntityType;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\Form\Extension\Core\Type\NumberType;
+use Symfony\Component\Form\Extension\Core\Type\SubmitType;
+use Symfony\Component\Form\Extension\Core\Type\TextType;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
 
 class CancionController extends AbstractController
 {
-    /*private $canciones = [];
+    private $canciones = [];
+
+    /*===NUEVA CANCION======================================================================*/
+    #[Route('/canciones/nueva', name: 'nueva_cancion')]
+    public function nuevo(ManagerRegistry $doctrine, Request $request): Response
+    {
+        $cancion = new Canciones();
+
+        $formulario = $this->createForm(CancionType::class, $cancion);
+        $formulario->handleRequest($request);
+
+        if ($formulario->isSubmitted() && $formulario->isValid()) {
+            $cancion = $formulario->getData();
+            $entityManager = $doctrine->getManager();
+            $entityManager->persist($cancion);
+            $entityManager->flush();
+            return $this->redirectToRoute('ficha_cancion', ["codigo" => $cancion->getId()]);
+        }
+
+        return $this->render('cancion/nuevo.html.twig', array('formulario' => $formulario->createView()));
+    }
+    /*======================================================================================*/
+
+    /*===EDITAR CANCION=====================================================================*/
+    #[Route('/canciones/editar/{codigo}', name: 'editar_cancion')]
+    public function editar(ManagerRegistry $doctrine, Request $request, $codigo): Response
+    {
+
+        $repositorio = $doctrine->getRepository(Canciones::class);
+        $cancion = $repositorio->find($codigo);
+        if ($cancion) {
+            $formulario = $this->createForm(CancionType::class, $cancion);
+
+            $formulario->handleRequest($request);
+
+            if ($formulario->isSubmitted() && $formulario->isValid()) {
+                $cancion = $formulario->getData();
+                $entityManager = $doctrine->getManager();
+                $entityManager->persist($cancion);
+                $entityManager->flush();
+                return $this->redirectToRoute('ficha_cancion', ["codigo" => $cancion->getId()]);
+            }
+        }
+        return $this->render('cancion/editar.html.twig', array(
+            'formulario' => $formulario->createView()));
+    }
+    /*======================================================================================*/
 
     /**===BUSCAR CANCIONES POR TEXTO========================================================= */
     #[Route('/canciones/buscar/{texto}', name: 'app_cancion')]
