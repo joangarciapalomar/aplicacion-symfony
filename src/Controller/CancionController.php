@@ -6,14 +6,15 @@ use App\Entity\Autor;
 use App\Entity\Canciones;
 use App\Form\CancionType;
 use Doctrine\Persistence\ManagerRegistry;
-use Symfony\Bridge\Doctrine\Form\Type\EntityType;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\Form\Extension\Core\Type\NumberType;
-use Symfony\Component\Form\Extension\Core\Type\SubmitType;
-use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\HttpFoundation\Session\SessionInterface;
+use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\File\Exception\FileException;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
+use Symfony\Component\String\Slugger\SluggerInterface;
 
 class CancionController extends AbstractController
 {
@@ -21,19 +22,54 @@ class CancionController extends AbstractController
 
     /*===NUEVA CANCION======================================================================*/
     #[Route('/canciones/nueva', name: 'nueva_cancion')]
-    public function nuevo(ManagerRegistry $doctrine, Request $request): Response
+    public function nuevo(ManagerRegistry $doctrine, SluggerInterface $slugger, Request $request, SessionInterface $session): Response
     {
-        $cancion = new Canciones();
+        if ($this->getUser()) {
+            $cancion = new Canciones();
 
-        $formulario = $this->createForm(CancionType::class, $cancion);
-        $formulario->handleRequest($request);
+            $formulario = $this->createForm(CancionType::class, $cancion);
+            $formulario->handleRequest($request);
 
-        if ($formulario->isSubmitted() && $formulario->isValid()) {
-            $cancion = $formulario->getData();
-            $entityManager = $doctrine->getManager();
-            $entityManager->persist($cancion);
-            $entityManager->flush();
-            return $this->redirectToRoute('ficha_cancion', ["codigo" => $cancion->getId()]);
+            if ($formulario->isSubmitted() && $formulario->isValid()) {
+                $cancion = $formulario->getData();
+                $entityManager = $doctrine->getManager();
+                $entityManager->persist($cancion);
+                $entityManager->flush();
+                $file = $formulario->get('file')->getData();
+                if ($file) {
+                    $originalFilename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+                    // This is needed to safely include the file name as part of the URL
+                    $safeFilename = $slugger->slug($originalFilename);
+                    $newFilename = $safeFilename . '-' . uniqid() . '.' . $file->guessExtension();
+
+                    // Move the file to the directory where images are stored
+                    try {
+                        $file->move(
+                            $this->getParameter('images_directory'),
+                            $newFilename
+                        );
+
+                        $filesystem = new Filesystem();
+                        $filesystem->copy(
+                            $this->getParameter('images_directory') . '/' . $newFilename,
+                            true
+                        );
+                    } catch (FileException $e) {
+                        // Handle the exception if something happens during file upload
+                    }
+
+                    // Update the 'file$filename' property to store the PDF file name
+                    // instead of its contents
+                    $cancion->setFile($newFilename);
+                }
+
+                // Flush the changes to the database
+                $entityManager->flush();
+                return $this->redirectToRoute('ficha_cancion');
+            }
+        } else {
+            $session->set('redirect_to', 'ficha_cancion');
+            return $this->redirectToRoute("app_login");
         }
 
         return $this->render('cancion/nuevo.html.twig', array('formulario' => $formulario->createView()));
@@ -42,26 +78,68 @@ class CancionController extends AbstractController
 
     /*===EDITAR CANCION=====================================================================*/
     #[Route('/canciones/editar/{codigo}', name: 'editar_cancion')]
-    public function editar(ManagerRegistry $doctrine, Request $request, $codigo): Response
+    public function editar(ManagerRegistry $doctrine, SluggerInterface $slugger, Request $request, $codigo, SessionInterface $session): Response
     {
+        if ($this->getUser()) {
+            $repositorio = $doctrine->getRepository(Canciones::class);
+            $cancion = $repositorio->find($codigo);
+            if ($cancion) {
+                $formulario = $this->createForm(CancionType::class, $cancion);
 
-        $repositorio = $doctrine->getRepository(Canciones::class);
-        $cancion = $repositorio->find($codigo);
-        if ($cancion) {
-            $formulario = $this->createForm(CancionType::class, $cancion);
+                $formulario->handleRequest($request);
 
-            $formulario->handleRequest($request);
+                if ($formulario->isSubmitted() && $formulario->isValid()) {
+                    $cancion = $formulario->getData();
+                    $entityManager = $doctrine->getManager();
 
-            if ($formulario->isSubmitted() && $formulario->isValid()) {
-                $cancion = $formulario->getData();
-                $entityManager = $doctrine->getManager();
-                $entityManager->persist($cancion);
-                $entityManager->flush();
-                return $this->redirectToRoute('ficha_cancion', ["codigo" => $cancion->getId()]);
+                    // Manejo de archivos
+                    $file = $formulario->get('file')->getData();
+                    if ($file) {
+                        $originalFilename = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+                        // Esto es necesario para incluir de manera segura el nombre del archivo como parte de la URL
+                        $safeFilename = $slugger->slug($originalFilename);
+                        $newFilename = $safeFilename . '-' . uniqid() . '.' . $file->guessExtension();
+
+                        // Mover el archivo al directorio donde se almacenan las imágenes
+                        try {
+                            $file->move(
+                                $this->getParameter('images_directory'),
+                                $newFilename
+                            );
+
+                            $filesystem = new Filesystem();
+                            $filesystem->copy(
+                                $this->getParameter('images_directory') . '/' . $newFilename,
+                                $this->getParameter('portfolio_directory') . '/' .  $newFilename,
+                                true
+                            );
+                        } catch (FileException $e) {
+                            // Manejar la excepción si ocurre algo durante la carga del archivo
+                        }
+
+                        // Actualizar la propiedad 'file$filename' para almacenar el nombre del archivo de la canción en lugar de su contenido
+                        $cancion->setFile($newFilename);
+                    }
+
+                    // Guardar los cambios en la entidad principal
+                    $entityManager->persist($cancion);
+                    $entityManager->flush();
+
+                    return $this->redirectToRoute('ficha_cancion', ["codigo" => $cancion->getId()]);
+                }
+            } else {
+                $formulario = $this->createForm(CancionType::class, new Canciones());
             }
+
+            return $this->render('cancion/editar.html.twig', [
+                'formulario' => $formulario->createView(),
+                'images' => $cancion,
+            ]);
+        } else {
+            $session->set('redirect_to', 'editar_cancion');
+            $session->set('codigo', $codigo);
+            return $this->redirectToRoute("app_login");
         }
-        return $this->render('cancion/editar.html.twig', array(
-            'formulario' => $formulario->createView()));
     }
     /*======================================================================================*/
 
@@ -76,27 +154,38 @@ class CancionController extends AbstractController
     }
     /**====================================================================================== */
 
-    /**===BUSCAR CANCIONES POR CÓDIGO======================================================== */
+    /**===FICHA POR CÓDIGO======================================================== */
     #[Route('/canciones/{codigo}', name: 'ficha_cancion')]
-    public function codigo(ManagerRegistry $doctrine, $codigo): Response
+    public function codigo(ManagerRegistry $doctrine, $codigo, SessionInterface $session): Response
     {
-        $repositorio = $doctrine->getRepository(Canciones::class);
-        $cancion = $repositorio->find($codigo);
-        return $this->render('ficha_cancion.html.twig', ['cancion' => $cancion]);
+        if ($this->getUser()) {
+            $repositorio = $doctrine->getRepository(Canciones::class);
+            $cancion = $repositorio->find($codigo);
+            return $this->render('ficha_cancion.html.twig', ['cancion' => $cancion]);
+        } else {
+            $session->set('redirect_to', 'ficha_cancion');
+            $session->set('codigo', $codigo);
+            return $this->redirectToRoute("app_login");
+        }
     }
     /**====================================================================================== */
 
     /**===LISTADO CANCIONES================================================================== */
     #[Route('/canciones', name: 'app_listado')]
-    public function index(ManagerRegistry $doctrine): Response
+    public function index(ManagerRegistry $doctrine, SessionInterface $session): Response
     {
+        if ($this->getUser()) {
 
-        $repositorio = $doctrine->getRepository(Canciones::class);
-        $canciones = $repositorio->findAll();
+            $repositorio = $doctrine->getRepository(Canciones::class);
+            $canciones = $repositorio->findAll();
 
-        return $this->render('listado.html.twig', [
-            'controller_name' => 'ListadoController', "canciones" => $canciones
-        ]);
+            return $this->render('listado.html.twig', [
+                'controller_name' => 'ListadoController', "canciones" => $canciones
+            ]);
+        } else {
+            $session->set('redirect_to', 'app_listado');
+            return $this->redirectToRoute("app_login");
+        }
     }
     /**====================================================================================== */
 
@@ -120,7 +209,7 @@ class CancionController extends AbstractController
             return new Response("Error al insertar las canciones");
         }
     }
-    /**================================    if($autor)===================================================== */
+    /**================================if($autor)===================================================== */
     #[Route('/canciones/update/{id}/{nombre}/{autor}/{duracion}', name: 'app_update')]
     public function update(ManagerRegistry $doctrine, $id, $nombre, $autor, $duracion): Response
     {
@@ -148,21 +237,26 @@ class CancionController extends AbstractController
 
     /**===BORRAR CANCIONES================================================================== */
     #[Route('/canciones/delete/{id}', name: 'app_delete')]
-    public function delete(ManagerRegistry $doctrine, $id): Response
+    public function delete(ManagerRegistry $doctrine, $id, SessionInterface $session): Response
     {
-        $entityManager = $doctrine->getManager();
-        $repositorio = $doctrine->getRepository(Canciones::class);
-        $cancion = $repositorio->find($id);
-        if ($cancion) {
-            try {
-                $entityManager->remove($cancion);
-                $entityManager->flush();
-                return new Response("Mineral eliminado");
-            } catch (\Exception $e) {
-                return new Response("Error eliminando el objeto");
+        if ($this->getUser()) {
+            $entityManager = $doctrine->getManager();
+            $repositorio = $doctrine->getRepository(Canciones::class);
+            $cancion = $repositorio->find($id);
+            if ($cancion) {
+                try {
+                    $entityManager->remove($cancion);
+                    $entityManager->flush();
+                    return new Response("Canción eliminada");
+                } catch (\Exception $e) {
+                    return new Response("Error eliminando el objeto");
+                }
+            } else {
+                return $this->render('ficha_cancion.html.twig', ['cancion' => null]);
             }
         } else {
-            return $this->render('ficha_cancion.html.twig', ['cancion' => null]);
+            $session->set('redirect_to', 'ficha_cancion');
+            return $this->redirectToRoute("app_login");
         }
     }
     /**====================================================================================== */
